@@ -13,8 +13,8 @@ services:
     buildCommand: "pip install -r requirements.txt"
     
     # Command to start the production server
-    # Use Uvicorn workers for an async Flask app
-    startCommand: "gunicorn run:app"
+    # Use a standard 'sync' worker for Flask
+    startCommand: "gunicorn --worker-class sync run:app"
     
     # Health Check to ensure the app is running before it's marked as "live"
     healthCheckPath: /api/check_model_status
