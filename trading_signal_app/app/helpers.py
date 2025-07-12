@@ -3,7 +3,8 @@
 import pandas as pd
 import pandas_ta as ta
 from flask import jsonify
-from .ml_logic import fetch_data_via_proxies
+# --- CHANGE IS HERE ---
+from .ml_logic import fetch_yfinance_data 
 
 def calculate_stop_loss_value(symbol, entry_price, sl_price):
     price_diff = abs(entry_price - sl_price)
@@ -25,14 +26,16 @@ def calculate_stop_loss_value(symbol, entry_price, sl_price):
 
 def get_latest_price(symbol):
     if not symbol: return jsonify({"error": "Symbol parameter is required."}), 400
-    data = fetch_data_via_proxies(symbol, period='1d', interval='1m')
+    # --- AND CHANGE IS HERE ---
+    data = fetch_yfinance_data(symbol, period='1d', interval='1m')
     if data is None or data.empty: return jsonify({"error": f"Could not fetch latest price for {symbol}."}), 500
     latest_price = data['Close'].iloc[-1]
     return jsonify({"symbol": symbol, "price": latest_price})
 
 def get_technical_indicators(symbol, timeframe):
     if not symbol: return jsonify({"error": "Symbol parameter is required."}), 400
-    data = fetch_data_via_proxies(symbol, period='90d', interval=timeframe)
+    # --- AND CHANGE IS HERE ---
+    data = fetch_yfinance_data(symbol, period='90d', interval=timeframe)
     if data is None or len(data) < 20: return jsonify({"error": f"Could not fetch sufficient historical data for {symbol}."}), 500
 
     data.ta.rsi(append=True)
