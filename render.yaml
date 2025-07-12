@@ -1,0 +1,20 @@
+# render.yaml
+# Place this file in the root of your repository
+
+services:
+  - type: web
+    name: trading-signal-app
+    env: python
+    # This is crucial: it tells Render to work inside your app's folder
+    rootDir: trading_signal_app
+    plan: free # Or your preferred plan. Free instances may spin down.
+    
+    # Command to install dependencies
+    buildCommand: "pip install -r requirements.txt"
+    
+    # Command to start the production server
+    # Use Uvicorn workers for an async Flask app
+    startCommand: "gunicorn -k uvicorn.workers.UvicornWorker run:app"
+    
+    # Health Check to ensure the app is running before it's marked as "live"
+    healthCheckPath: /api/check_model_status
