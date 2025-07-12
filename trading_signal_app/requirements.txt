@@ -10,3 +10,4 @@ gunicorn==21.2.0
 yfinance==0.2.33
 httpx==0.25.2
 uvicorn==0.25.0
+imbalanced-learn==0.10.1
