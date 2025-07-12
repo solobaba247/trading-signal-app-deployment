@@ -14,7 +14,7 @@ services:
     
     # Command to start the production server
     # Use Uvicorn workers for an async Flask app
-    startCommand: "gunicorn -k uvicorn.workers.UvicornWorker run:app"
+    startCommand: "gunicorn run:app"
     
     # Health Check to ensure the app is running before it's marked as "live"
     healthCheckPath: /api/check_model_status
