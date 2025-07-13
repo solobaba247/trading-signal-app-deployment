@@ -5,6 +5,16 @@ import pandas as pd
 from .ml_logic import create_features_for_prediction, fetch_yfinance_data
 from .helpers import calculate_stop_loss_value
 
+# --- NEW: THIS IS THE HOMEPAGE ROUTE ---
+@current_app.route('/')
+def index():
+    """Renders the main HTML page."""
+    # We can access the data we defined in __init__.py via current_app
+    asset_classes = current_app.ASSET_CLASSES
+    timeframes = current_app.TIMEFRAMES
+    return render_template('index.html', asset_classes=asset_classes, timeframes=timeframes)
+
+
 # --- Helper function for the scanner (now synchronous) ---
 def get_prediction_for_symbol(symbol, timeframe, model, scaler, feature_columns):
     """
@@ -77,18 +87,16 @@ def get_prediction_for_symbol(symbol, timeframe, model, scaler, feature_columns)
 # --- Market Scan Route (now synchronous) ---
 @current_app.route('/api/scan_market', methods=['POST'])
 def scan_market_route():
-    from flask import current_app
-    ASSET_CLASSES = getattr(current_app, 'ASSET_CLASSES', {})
-
     asset_type = request.json.get('asset_type')
     timeframe = request.json.get('timeframe', '1h')
-    if not asset_type or asset_type not in ASSET_CLASSES:
+    asset_classes = current_app.ASSET_CLASSES
+    if not asset_type or asset_type not in asset_classes:
         return jsonify({"error": "Invalid asset type"}), 400
 
-    symbols_to_scan = ASSET_CLASSES[asset_type]
+    symbols_to_scan = asset_classes[asset_type]
     
     scan_results = []
-    # Use a simple loop instead of asyncio
+    # Use a simple loop
     for symbol in symbols_to_scan:
         result = get_prediction_for_symbol(
             symbol, 
@@ -102,7 +110,7 @@ def scan_market_route():
     
     return jsonify(scan_results)
 
-# --- Health Check Route (no changes needed, but keeping it for completeness) ---
+# --- Health Check Route ---
 @current_app.route('/api/check_model_status')
 def check_model_status():
     if current_app.model is not None and current_app.scaler is not None:
