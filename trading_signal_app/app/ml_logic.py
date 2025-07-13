@@ -7,33 +7,133 @@ import pandas_ta as ta
 import warnings
 import asyncio
 import os
+import requests # Added for API fallbacks
 
 warnings.filterwarnings('ignore')
 
-# --- DATA FETCHING ---
-def fetch_yfinance_data(symbol, period='90d', interval='1h'):
-    """Fetches data directly using the yfinance library."""
-    print(f"--- Starting yfinance fetch for {symbol} ---")
+# --- DATA FETCHING FALLBACKS & ORCHESTRATION ---
+
+def _map_symbol_to_binance_crypto(symbol: str) -> str:
+    """Maps a yfinance crypto symbol (e.g., BTC-USD) to a Binance symbol (e.g., BTCUSDT)."""
+    return symbol.replace('-USD', 'USDT').upper()
+
+def _map_symbol_to_binance_forex(symbol: str) -> str:
+    """Maps a yfinance forex symbol (e.g., EURUSD=X) to a Binance symbol (e.g., EURUSDT)."""
+    clean_symbol = symbol.replace('=X', '').upper()
+    # Handle USD-based pairs to map to USDT
+    if 'USD' in clean_symbol:
+        return clean_symbol.replace('USD', 'USDT')
+    return clean_symbol
+
+def _fetch_binance_fallback(binance_symbol: str, interval: str = '1h'):
+    """
+    Fetches historical OHLCV data from Binance as a fallback.
+    Binance is used because its API provides volume data, which is crucial for our model features.
+    """
+    # Map yfinance interval to Binance interval
+    interval_map = {'1m': '1m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1h', '4h': '4h', '1d': '1d'}
+    binance_interval = interval_map.get(interval)
+    if not binance_interval:
+        print(f"   - Binance Fallback: Unsupported interval '{interval}' for {binance_symbol}")
+        return None
+
+    # Binance API has a limit of 1000 candles per request. This is usually sufficient.
+    url = f"https://api.binance.com/api/v3/klines?symbol={binance_symbol}&interval={binance_interval}&limit=1000"
+    
+    response = requests.get(url, timeout=10)
+    response.raise_for_status() # Raise an exception for bad status codes (4xx or 5xx)
+    data = response.json()
+    
+    if not data:
+        return None
+        
+    # Process data into a DataFrame matching yfinance format
+    df = pd.DataFrame(data, columns=[
+        'Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume', 'Close_time', 
+        'Quote_asset_volume', 'Number_of_trades', 'Taker_buy_base_asset_volume', 
+        'Taker_buy_quote_asset_volume', 'Ignore'
+    ])
+    
+    df = df[['Timestamp', 'Open', 'High', 'Low', 'Close', 'Volume']]
+    df['Timestamp'] = pd.to_datetime(df['Timestamp'], unit='ms')
+    df.set_index('Timestamp', inplace=True)
+    df = df.astype(float)
+    
+    # Ensure column names match the required format (Capitalized)
+    df.columns = ['Open', 'High', 'Low', 'Close', 'Volume']
+    
+    return df
+
+def _fetch_yfinance_primary(symbol: str, period: str = '90d', interval: str = '1h'):
+    """Primary data fetch function using the yfinance library."""
     try:
+        # yfinance can be inconsistent with some tickers, so we handle this.
+        if "EURONEXT:" in symbol:
+            symbol = symbol.split(":")[1] # yfinance may not need the exchange prefix
+            
         ticker = yf.Ticker(symbol)
         df = ticker.history(period=period, interval=interval, auto_adjust=False)
         if df.empty:
-            print(f"   ⚠️ yfinance returned no data for {symbol}")
-            return None
+            return None # The orchestrator will log the failure
         
-        # Ensure proper column names
         df.columns = df.columns.str.title()
         df = df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
         
-        if not df.empty:
-            print(f"   ✅ Success with yfinance for {symbol}!")
-            return df
+        return df if not df.empty else None
     except Exception as e:
-        print(f"   ❌ yfinance fetch failed for {symbol}: {e}")
+        # Don't print the full stack trace for common yfinance errors
+        # print(f"   - yfinance internal error for {symbol}: {e}")
+        return None
+
+# --- PUBLIC DATA FETCHING FUNCTION ---
+
+def fetch_yfinance_data(symbol, period='90d', interval='1h'):
+    """
+    Fetches historical data, starting with yfinance and using fallbacks for specific asset classes.
+    A fallback to the Binance API is implemented for crypto and forex assets.
+    """
+    print(f"--- Starting data fetch for {symbol} ({interval}) ---")
+    
+    # 1. Try yfinance first (primary source for all assets)
+    data = _fetch_yfinance_primary(symbol, period, interval)
+    if data is not None and not data.empty:
+        print(f"   ✅ Success with yfinance for {symbol}!")
+        return data
+        
+    print(f"   ⚠️ yfinance primary fetch failed for {symbol}. Attempting fallbacks...")
+    
+    binance_symbol = None
+    asset_type = "unknown"
+
+    # 2. Determine Fallback Strategy
+    if "-USD" in symbol:
+        asset_type = "crypto"
+        binance_symbol = _map_symbol_to_binance_crypto(symbol)
+    elif "=X" in symbol:
+        asset_type = "forex"
+        binance_symbol = _map_symbol_to_binance_forex(symbol)
+
+    # 3. Execute Fallback if applicable
+    if binance_symbol:
+        print(f"   -> Detected {asset_type} asset. Attempting Binance fallback with symbol {binance_symbol}...")
+        try:
+            data = _fetch_binance_fallback(binance_symbol, interval)
+            if data is not None and not data.empty:
+                print(f"   ✅ Success with Binance fallback for {symbol}!")
+                return data
+            else:
+                print(f"   - Binance fallback returned no data for {binance_symbol}.")
+        except Exception as e:
+            print(f"   - Binance fallback request failed for {binance_symbol}: {e}")
+    else:
+        print(f"   - No specific fallback available for asset type of {symbol}.")
+            
+    # 4. If all sources and fallbacks fail
+    print(f"   ❌ All data sources failed for {symbol}.")
     return None
 
 async def fetch_data_for_symbol_async(symbol, timeframe):
-    """Asynchronously runs the synchronous yfinance function in a separate thread."""
+    """Asynchronously runs the synchronous data fetch orchestrator in a separate thread."""
     loop = asyncio.get_running_loop()
     data = await loop.run_in_executor(
         None, fetch_yfinance_data, symbol, '90d', timeframe
