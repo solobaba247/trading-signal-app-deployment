@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 assetSelect.disabled = true;
                 generateSignalBtn.disabled = true;
             } else {
-                throw new Error("Models failed to load on the server.");
+                throw new Error(data.message || "Models failed to load on the server.");
             }
         } catch (error) {
             modelStatusBadge.textContent = 'Failed';
@@ -112,7 +112,7 @@ document.addEventListener('DOMContentLoaded', () => {
         singleSignalResult.innerHTML = ''; // Clear previous results
 
         try {
-            const response = await fetch(`/api/generate_signal?symbol=${symbol}&timeframe=${timeframe}`);
+            const response = await fetch(`/api/generate_signal?symbol=${encodeURIComponent(symbol)}&timeframe=${encodeURIComponent(timeframe)}`);
             const data = await response.json();
 
             if (response.status !== 200) {
@@ -179,11 +179,13 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             const results = await response.json();
-             if (response.status !== 200) {
-                 throw new Error(results.error || 'Failed to scan market.');
-             }
+            
+            if (response.status !== 200) {
+                throw new Error(results.error || 'Failed to scan market.');
+            }
 
-            if (results.length > 0) {
+            // The API now returns an array directly, not wrapped in an object
+            if (Array.isArray(results) && results.length > 0) {
                 results.forEach(signal => {
                     const signalClass = getSignalClass(signal.signal);
                     const row = `
