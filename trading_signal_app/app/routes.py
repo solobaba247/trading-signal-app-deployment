@@ -20,14 +20,16 @@ def fetch_yfinance_data(symbol, period='90d', interval='1h'):
         return None
 
 def create_features_for_prediction(data):
-    """Create features for prediction"""
+    """Create features for prediction using pandas-ta"""
     try:
-        # Basic technical indicators
-        data['SMA_20'] = data['Close'].rolling(window=20).mean()
-        data['SMA_50'] = data['Close'].rolling(window=50).mean()
-        data['RSI'] = calculate_rsi(data['Close'])
-        data['MACD'], data['MACD_signal'] = calculate_macd(data['Close'])
-        data['BB_upper'], data['BB_lower'] = calculate_bollinger_bands(data['Close'])
+        import pandas_ta as ta
+        
+        # Add technical indicators using pandas-ta
+        data.ta.sma(length=20, append=True)  # SMA_20
+        data.ta.sma(length=50, append=True)  # SMA_50
+        data.ta.rsi(length=14, append=True)  # RSI_14
+        data.ta.macd(append=True)  # MACD_12_26_9, MACDs_12_26_9, MACDh_12_26_9
+        data.ta.bbands(length=20, append=True)  # BBL_20_2.0, BBM_20_2.0, BBU_20_2.0
         
         # Price-based features
         data['price_change'] = data['Close'].pct_change()
@@ -162,7 +164,12 @@ def get_prediction_for_symbol(symbol, timeframe, model, scaler, feature_columns)
 # --- Routes ---
 @current_app.route('/')
 def index():
-    """Home page"""
+    """Home page - HTML interface"""
+    return render_template('index.html')
+
+@current_app.route('/api')
+def api_info():
+    """API information endpoint"""
     return jsonify({
         "message": "Trading Signal API",
         "endpoints": {
