@@ -20,8 +20,11 @@ def fetch_yfinance_data(symbol, period='90d', interval='1h'):
         if df.empty:
             print(f"   ⚠️ yfinance returned no data for {symbol}")
             return None
-        df.rename(columns={'open': 'Open', 'high': 'High', 'low': 'Low', 'close': 'Close', 'volume': 'Volume'}, inplace=True)
+        
+        # Ensure proper column names
+        df.columns = df.columns.str.title()
         df = df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
+        
         if not df.empty:
             print(f"   ✅ Success with yfinance for {symbol}!")
             return df
@@ -87,7 +90,8 @@ def create_features_for_prediction(data, feature_columns_list):
             df[col] = 0 # Add missing columns with a default value
     
     # Return dataframe with only the required columns, properly ordered and cleaned
-    final_df = df[feature_columns_list + ['Close']].fillna(method='ffill').fillna(0)
+    # Use forward fill and then backward fill to handle NaN values
+    final_df = df[feature_columns_list + ['Close']].fillna(method='ffill').fillna(method='bfill').fillna(0)
     return final_df
 
 # --- PREDICTION LOGIC ---
@@ -114,8 +118,11 @@ def get_model_prediction(data, model, scaler, feature_columns):
     sell_df = pd.DataFrame([sell_features])[feature_columns]
 
     # 3. Scale and Predict
-    buy_prob = model.predict_proba(scaler.transform(buy_df))[0][1]
-    sell_prob = model.predict_proba(scaler.transform(sell_df))[0][1]
+    try:
+        buy_prob = model.predict_proba(scaler.transform(buy_df))[0][1]
+        sell_prob = model.predict_proba(scaler.transform(sell_df))[0][1]
+    except Exception as e:
+        return {"error": f"Prediction failed: {str(e)}"}
 
     # 4. Determine Signal
     confidence_threshold = 0.55
@@ -129,9 +136,12 @@ def get_model_prediction(data, model, scaler, feature_columns):
         signal_type = "SELL"
         confidence = sell_prob
 
-    # 6. Format result
+    # 5. Format result
     return {
-        "signal": signal_type, "confidence": confidence, "latest_price": last_price,
-        "buy_prob": buy_prob, "sell_prob": sell_prob,
+        "signal": signal_type, 
+        "confidence": confidence, 
+        "latest_price": last_price,
+        "buy_prob": buy_prob, 
+        "sell_prob": sell_prob,
         "timestamp": pd.Timestamp.now().strftime('%Y-%m-%d %H:%M:%S')
     }
