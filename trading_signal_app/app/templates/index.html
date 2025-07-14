@@ -45,6 +45,11 @@
                                     {% endfor %}
                                 </select>
                             </div>
+                            <!-- NEW: Input for analysis period -->
+                            <div class="col-md-6 mb-3">
+                                <label for="analysis-period-input" class="form-label">Analysis Period (Days)</label>
+                                <input type="number" class="form-control" id="analysis-period-input" value="90" min="20" max="730">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -107,15 +112,14 @@
                 </div>
             </div>
         </div>
-
-        <!-- Additional cards from your original HTML file can go here -->
-
     </main>
 
     <script>
         // Pass asset data from Flask to JavaScript
         const assetClasses = {{ asset_classes|tojson }};
     </script>
+    <!-- IMPORTANT: Load fallback logic BEFORE the main script -->
+    <script src="{{ url_for('static', filename='js/client_fallback_fetcher.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>
