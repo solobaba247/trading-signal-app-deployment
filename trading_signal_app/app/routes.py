@@ -1,7 +1,7 @@
 # app/routes.py
 from flask import current_app, render_template, request, jsonify
 from .ml_logic import fetch_yfinance_data, get_model_prediction
-from .helpers import calculate_stop_loss_value
+from .helpers import calculate_stop_loss_value, get_technical_indicators, get_latest_price # Added missing helper imports
 
 @current_app.route('/')
 def index():
@@ -39,9 +39,47 @@ def generate_signal():
         }
         return jsonify(result)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        # It's good practice to log the actual exception for debugging
+        current_app.logger.error(f"Error in /api/generate_signal: {e}", exc_info=True)
+        return jsonify({"error": "An internal server error occurred."}), 500
 
+# ===================================================================
+#  FIX IS HERE: Implement the health check function correctly
+# ===================================================================
 @current_app.route('/api/check_model_status')
 def check_model_status():
-    # ... (This function remains unchanged) ...
-    pass
+    """
+    Checks if the ML model and its components are loaded correctly.
+    This is used by Render for health checks.
+    """
+    # Check if the attributes we set in __init__.py exist on the app object
+    model_loaded = hasattr(current_app, 'model') and current_app.model is not None
+    scaler_loaded = hasattr(current_app, 'scaler') and current_app.scaler is not None
+    features_loaded = hasattr(current_app, 'feature_columns') and current_app.feature_columns is not None
+
+    if model_loaded and scaler_loaded and features_loaded:
+        status = {
+            "status": "ok",
+            "message": "ML model and all components are loaded successfully."
+        }
+        # Return a 200 OK status, which tells Render the app is healthy
+        return jsonify(status), 200
+    else:
+        status = {
+            "status": "error",
+            "message": "One or more ML components failed to load. Check server logs."
+        }
+        # Return a 503 Service Unavailable status, which tells Render the app is unhealthy
+        return jsonify(status), 503
+
+# You may also want to add routes for your other helper functions if they are called from JS
+@current_app.route('/api/get_indicators')
+def api_get_indicators():
+    symbol = request.args.get('symbol')
+    timeframe = request.args.get('timeframe', '1h')
+    return get_technical_indicators(symbol, timeframe)
+
+@current_app.route('/api/get_price')
+def api_get_price():
+    symbol = request.args.get('symbol')
+    return get_latest_price(symbol)
