@@ -1,30 +1,8 @@
 # app/routes.py
 
 from flask import current_app, render_template, request, jsonify
-import pandas as pd
-import yfinance as yf
-import numpy as np
-from datetime import datetime, timedelta
 from .ml_logic import fetch_yfinance_data, get_model_prediction
-
-def calculate_stop_loss_value(symbol, entry_price, stop_loss_price):
-    """Calculate stop loss value"""
-    price_diff = abs(entry_price - stop_loss_price)
-    currency_map = {'USD': '$', 'JPY': '¥', 'GBP': '£', 'EUR': '€', 'CHF': 'Fr.'}
-    try:
-        if "=X" in symbol:
-            value = price_diff * 1000
-            quote_currency = symbol[3:6]
-            currency_symbol = currency_map.get(quote_currency, quote_currency + ' ')
-            return f"({currency_symbol}{value:,.2f})"
-        elif "-USD" in symbol:
-            value = price_diff * 0.01
-            return f"(~${value:,.2f})"
-        else:
-            value = price_diff * 1
-            return f"(~${value:,.2f})"
-    except Exception:
-        return ""
+from .helpers import calculate_stop_loss_value # Import from helpers to avoid duplication
 
 def get_prediction_for_symbol(symbol, timeframe, model, scaler, feature_columns):
     """
