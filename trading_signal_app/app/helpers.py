@@ -3,10 +3,11 @@
 import pandas as pd
 import pandas_ta as ta
 from flask import jsonify
-# --- CHANGE IS HERE ---
+# This import correctly points to your centralized data fetching function.
 from .ml_logic import fetch_yfinance_data 
 
 def calculate_stop_loss_value(symbol, entry_price, sl_price):
+    # This function does not fetch data and needs no changes.
     price_diff = abs(entry_price - sl_price)
     currency_map = {'USD': '$', 'JPY': '¥', 'GBP': '£', 'EUR': '€', 'CHF': 'Fr.'}
     try:
@@ -25,19 +26,35 @@ def calculate_stop_loss_value(symbol, entry_price, sl_price):
         return ""
 
 def get_latest_price(symbol):
-    if not symbol: return jsonify({"error": "Symbol parameter is required."}), 400
-    # --- AND CHANGE IS HERE ---
+    """
+    Fetches the latest price using the centralized yfinance data function.
+    """
+    if not symbol: 
+        return jsonify({"error": "Symbol parameter is required."}), 400
+    
+    # INTEGRATION: Call the master function from ml_logic.py
     data = fetch_yfinance_data(symbol, period='1d', interval='1m')
-    if data is None or data.empty: return jsonify({"error": f"Could not fetch latest price for {symbol}."}), 500
+    
+    if data is None or data.empty: 
+        return jsonify({"error": f"Could not fetch latest price for {symbol}."}), 500
+        
     latest_price = data['Close'].iloc[-1]
     return jsonify({"symbol": symbol, "price": latest_price})
 
 def get_technical_indicators(symbol, timeframe):
-    if not symbol: return jsonify({"error": "Symbol parameter is required."}), 400
-    # --- AND CHANGE IS HERE ---
+    """
+    Calculates technical indicators using data from the centralized yfinance function.
+    """
+    if not symbol: 
+        return jsonify({"error": "Symbol parameter is required."}), 400
+    
+    # INTEGRATION: Call the master function from ml_logic.py
     data = fetch_yfinance_data(symbol, period='90d', interval=timeframe)
-    if data is None or len(data) < 20: return jsonify({"error": f"Could not fetch sufficient historical data for {symbol}."}), 500
+    
+    if data is None or len(data) < 20: 
+        return jsonify({"error": f"Could not fetch sufficient historical data for {symbol}."}), 500
 
+    # The rest of the TA logic remains the same
     data.ta.rsi(append=True)
     data.ta.macd(append=True)
     data.ta.bbands(append=True)
@@ -62,4 +79,5 @@ def get_technical_indicators(symbol, timeframe):
         elif latest.get('Close') < latest.get('BBL_20_2.0'): summary += " (Trending Strong Down)"
         results['Bollinger Bands (20, 2)'] = summary
     results['Latest Close'] = f"{latest.get('Close'):.5f}"
+    
     return jsonify(results)
