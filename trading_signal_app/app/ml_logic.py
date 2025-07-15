@@ -1,4 +1,17 @@
 # app/ml_logic.py
+# In ml_logic.py, add at the top:
+from .data_cache_reader import get_cached_data
+
+# Modify your fetch function:
+def fetch_yfinance_data(symbol, period='90d', interval='1h'):
+    # Try cached data first
+    cached_data = get_cached_data(symbol, interval)
+    if cached_data is not None and not cached_data.empty:
+        return cached_data
+    
+    # Fallback to live fetching (your existing code)
+    # ... existing fetch logic
+
 
 import pandas as pd
 import numpy as np
