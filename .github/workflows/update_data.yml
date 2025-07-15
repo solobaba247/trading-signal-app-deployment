@@ -111,8 +111,21 @@ jobs:
       if: steps.check_changes.outputs.changes == 'true'
       working-directory: ./trading_signal_app
       run: |
+        # Configure git to ignore warnings about ignored files
+        git config advice.addIgnoredFile false
+        
+        # Add only the data_cache directory (skip log files that might be ignored)
         git add data_cache/
-        git add data_pipeline.log
+        
+        # Try to add log file, but don't fail if it's ignored
+        git add data_pipeline.log 2>/dev/null || echo "Log file ignored by .gitignore, skipping"
+        
+        # Check if there are actually changes to commit
+        if git diff --staged --quiet; then
+          echo "No staged changes to commit"
+          exit 0
+        fi
+        
         git commit -m "🤖 Auto-update trading data cache - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
         git push
     
