@@ -1,0 +1,30 @@
+name: Test Workflow
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: List repository contents
+      run: |
+        echo "Repository structure:"
+        find . -type f -name "*.py" -o -name "*.txt" -o -name "*.yml" | head -20
+        
+    - name: Check if trading_signal_app exists
+      run: |
+        if [ -d "trading_signal_app" ]; then
+          echo "✅ trading_signal_app directory exists"
+          ls -la trading_signal_app/
+        else
+          echo "❌ trading_signal_app directory not found"
+          echo "Current directory contents:"
+          ls -la
+        fi
