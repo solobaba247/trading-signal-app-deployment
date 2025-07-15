@@ -22,32 +22,16 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
+        # Fetch full history to avoid issues with commits
         fetch-depth: 0
     
-    - name: Verify repository structure
-      run: |
-        echo "Repository structure:"
-        find . -type f -name "*.py" -o -name "*.txt" -o -name "*.yml" | head -20
-        echo "Current directory contents:"
-        ls -la
-        
-        if [ ! -d "trading_signal_app" ]; then
-          echo "❌ trading_signal_app directory not found"
-          echo "Creating directory structure..."
-          mkdir -p trading_signal_app/data_cache/{1h,4h,1d}
-          echo "# Trading Signal App Requirements" > trading_signal_app/requirements.txt
-          echo "requests" >> trading_signal_app/requirements.txt
-          echo "# Basic data pipeline script" > trading_signal_app/data_pipeline.py
-          echo "print('Data pipeline executed successfully')" >> trading_signal_app/data_pipeline.py
-        fi
-    
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.9'
     
     - name: Cache pip dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip-${{ hashFiles('trading_signal_app/requirements.txt') }}
@@ -58,9 +42,7 @@ jobs:
       working-directory: ./trading_signal_app
       run: |
         python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then
-          pip install -r requirements.txt
-        fi
+        pip install -r requirements.txt
     
     - name: Create data cache directory
       working-directory: ./trading_signal_app
@@ -72,11 +54,7 @@ jobs:
       env:
         MAX_WORKERS: ${{ github.event.inputs.max_workers || '10' }}
       run: |
-        if [ -f data_pipeline.py ]; then
-          python data_pipeline.py
-        else
-          echo "data_pipeline.py not found, skipping..."
-        fi
+        python data_pipeline.py
     
     - name: Check if data was updated
       id: check_changes
@@ -101,15 +79,13 @@ jobs:
       working-directory: ./trading_signal_app
       run: |
         git add data_cache/
-        if [ -f data_pipeline.log ]; then
-          git add data_pipeline.log
-        fi
+        git add data_pipeline.log
         git commit -m "🤖 Auto-update trading data cache - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
         git push
     
     - name: Upload pipeline logs
       if: always()
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: pipeline-logs-${{ github.run_number }}
         path: |
