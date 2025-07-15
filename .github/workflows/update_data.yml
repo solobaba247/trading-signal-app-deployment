@@ -1,47 +1,118 @@
-# .github/workflows/update_data.yml
+name: Update Trading Data Cache
 
-name: Scheduled Data Fetch
-
-# Controls when the action will run.
-# This runs on a schedule (every hour) AND allows you to run it manually.
 on:
-  workflow_dispatch: # Allows manual triggering from the GitHub UI
   schedule:
-    # Runs at the beginning of every hour (e.g., 1:00, 2:00, 3:00)
-    - cron: "0 * * * *"
+    # Run every hour at minute 0
+    - cron: '0 * * * *'
+  
+  workflow_dispatch:
+    # Allow manual triggering
+    inputs:
+      max_workers:
+        description: 'Maximum number of concurrent workers'
+        required: false
+        default: '10'
+        type: string
 
 jobs:
-  build-and-commit-data:
-    runs-on: ubuntu-latest # Use a standard Linux environment
-
+  update-data:
+    runs-on: ubuntu-latest
+    
     steps:
-      # 1. Check out your repository's code
-      - name: Checkout repository
-        uses: actions/checkout@v3
-
-      # 2. Set up Python environment
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.10' # Match the Python version Render uses
-
-      # 3. Install the required Python packages
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-
-      # 4. Run the data pipeline script to fetch data and create cache files
-      - name: Run Data Pipeline
-        run: python data_pipeline.py
-
-      # 5. Commit the updated data_cache directory back to the repository
-      - name: Commit and push if data changed
-        run: |
-          git config --global user.name "GitHub Actions Bot"
-          git config --global user.email "actions@github.com"
-          git add data_cache/
-          # The following command will only commit if there are changes
-          git diff --quiet && git diff --staged --quiet || (git commit -m " chore: Update financial data cache" && git push)
-          echo "Data commit process finished."
-
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        # Fetch full history to avoid issues with commits
+        fetch-depth: 0
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('trading_signal_app/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+    
+    - name: Install dependencies
+      working-directory: ./trading_signal_app
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Create data cache directory
+      working-directory: ./trading_signal_app
+      run: |
+        mkdir -p data_cache/{1h,4h,1d}
+    
+    - name: Run data pipeline
+      working-directory: ./trading_signal_app
+      env:
+        MAX_WORKERS: ${{ github.event.inputs.max_workers || '10' }}
+      run: |
+        python data_pipeline.py
+    
+    - name: Check if data was updated
+      id: check_changes
+      working-directory: ./trading_signal_app
+      run: |
+        if [ -n "$(git status --porcelain data_cache/)" ]; then
+          echo "changes=true" >> $GITHUB_OUTPUT
+          echo "Data cache has been updated"
+        else
+          echo "changes=false" >> $GITHUB_OUTPUT
+          echo "No changes to data cache"
+        fi
+    
+    - name: Configure Git
+      if: steps.check_changes.outputs.changes == 'true'
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+    
+    - name: Commit and push changes
+      if: steps.check_changes.outputs.changes == 'true'
+      working-directory: ./trading_signal_app
+      run: |
+        git add data_cache/
+        git add data_pipeline.log
+        git commit -m "🤖 Auto-update trading data cache - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        git push
+    
+    - name: Upload pipeline logs
+      if: always()
+      uses: actions/upload-artifact@v3
+      with:
+        name: pipeline-logs-${{ github.run_number }}
+        path: |
+          trading_signal_app/data_pipeline.log
+          trading_signal_app/data_cache/pipeline_summary.txt
+        retention-days: 7
+    
+    - name: Create summary comment (on manual trigger)
+      if: github.event_name == 'workflow_dispatch' && always()
+      working-directory: ./trading_signal_app
+      run: |
+        echo "## 📊 Data Pipeline Summary" >> $GITHUB_STEP_SUMMARY
+        echo "**Execution Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+        echo "**Trigger:** Manual" >> $GITHUB_STEP_SUMMARY
+        echo "**Max Workers:** ${{ github.event.inputs.max_workers || '10' }}" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        
+        if [ -f "data_cache/pipeline_summary.txt" ]; then
+          echo "### Pipeline Results" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          cat data_cache/pipeline_summary.txt >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+        fi
+        
+        echo "### Changes Made" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ steps.check_changes.outputs.changes }}" = "true" ]; then
+          echo "✅ Data cache updated and committed" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "ℹ️ No changes to commit" >> $GITHUB_STEP_SUMMARY
+        fi
