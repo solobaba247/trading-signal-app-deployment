@@ -1,85 +1,102 @@
 # app/routes.py
-from flask import current_app, render_template, request, jsonify
+
+from flask import current_app as app, jsonify, request
 from .ml_logic import fetch_yfinance_data, get_model_prediction
-from .helpers import calculate_stop_loss_value, get_technical_indicators, get_latest_price # Added missing helper imports
+import asyncio
 
-@current_app.route('/')
+@app.route('/')
 def index():
-    timeframes = { '5m': '5 Minutes', '15m': '15 Minutes', '30m': '30 Minutes', '1h': '1 Hour', '4h': '4 Hours', '1d': '1 Day' }
-    asset_classes = getattr(current_app, 'ASSET_CLASSES', {})
-    return render_template('index.html', timeframes=timeframes, asset_classes=asset_classes)
+    return jsonify({
+        "message": "Trading ML API is running",
+        "model_loaded": app.model is not None,
+        "scaler_loaded": app.scaler is not None,
+        "features_loaded": app.feature_columns is not None,
+        "feature_count": len(app.feature_columns) if app.feature_columns else 0
+    })
 
-@current_app.route('/api/generate_signal')
-def generate_signal():
-    try:
-        symbol = request.args.get('symbol')
-        timeframe = request.args.get('timeframe', '1h')
-        period_days = request.args.get('period', '90')
-        
-        if not symbol: return jsonify({"error": "Symbol parameter is required"}), 400
-        if not hasattr(current_app, 'model') or current_app.model is None: return jsonify({"error": "ML Model is not loaded on the server."}), 503
-        
-        period_str = f"{period_days}d"
-        data = fetch_yfinance_data(symbol, period_str, timeframe)
-        if data is None or len(data) < 30: return jsonify({"error": f"Could not fetch sufficient historical data for {symbol} after all server fallbacks."}), 400
-        
-        prediction = get_model_prediction(data, current_app.model, current_app.scaler, current_app.feature_columns)
-        if "error" in prediction: return jsonify({"error": prediction["error"]}), 500
-        
-        entry_price_val = prediction["latest_price"]
-        sl_price_val = entry_price_val * (0.99 if prediction["signal"] == 'BUY' else 1.01)
-        tp_price_val = entry_price_val * (1.02 if prediction["signal"] == 'BUY' else 0.98)
-        
-        result = {
-            "symbol": symbol, "signal": prediction["signal"], "confidence": f"{prediction['confidence']:.2%}",
-            "entry_price": f"{entry_price_val:.5f}", "exit_price": f"{tp_price_val:.5f}",
-            "stop_loss": f"{sl_price_val:.5f}",
-            "stop_loss_value": calculate_stop_loss_value(symbol, entry_price_val, sl_price_val),
-            "timestamp": prediction["timestamp"]
-        }
-        return jsonify(result)
-    except Exception as e:
-        # It's good practice to log the actual exception for debugging
-        current_app.logger.error(f"Error in /api/generate_signal: {e}", exc_info=True)
-        return jsonify({"error": "An internal server error occurred."}), 500
+@app.route('/assets')
+def get_assets():
+    """Returns all available assets grouped by category."""
+    return jsonify(app.ASSET_CLASSES)
 
-# ===================================================================
-#  FIX IS HERE: Implement the health check function correctly
-# ===================================================================
-@current_app.route('/api/check_model_status')
-def check_model_status():
-    """
-    Checks if the ML model and its components are loaded correctly.
-    This is used by Render for health checks.
-    """
-    # Check if the attributes we set in __init__.py exist on the app object
-    model_loaded = hasattr(current_app, 'model') and current_app.model is not None
-    scaler_loaded = hasattr(current_app, 'scaler') and current_app.scaler is not None
-    features_loaded = hasattr(current_app, 'feature_columns') and current_app.feature_columns is not None
-
-    if model_loaded and scaler_loaded and features_loaded:
-        status = {
-            "status": "ok",
-            "message": "ML model and all components are loaded successfully."
-        }
-        # Return a 200 OK status, which tells Render the app is healthy
-        return jsonify(status), 200
-    else:
-        status = {
-            "status": "error",
-            "message": "One or more ML components failed to load. Check server logs."
-        }
-        # Return a 503 Service Unavailable status, which tells Render the app is unhealthy
-        return jsonify(status), 503
-
-# You may also want to add routes for your other helper functions if they are called from JS
-@current_app.route('/api/get_indicators')
-def api_get_indicators():
-    symbol = request.args.get('symbol')
+@app.route('/predict/<symbol>')
+def predict(symbol):
+    """Generate prediction for a specific symbol."""
+    
+    # Check if models are loaded
+    if not all([app.model, app.scaler, app.feature_columns]):
+        return jsonify({
+            "error": "ML models not properly loaded",
+            "model_loaded": app.model is not None,
+            "scaler_loaded": app.scaler is not None,
+            "features_loaded": app.feature_columns is not None
+        }), 500
+    
+    # Get timeframe from query parameters (default to 1h)
     timeframe = request.args.get('timeframe', '1h')
-    return get_technical_indicators(symbol, timeframe)
+    
+    try:
+        # Fetch data
+        data = fetch_yfinance_data(symbol, period='90d', interval=timeframe)
+        
+        if data is None:
+            return jsonify({
+                "error": f"Could not fetch data for symbol {symbol}",
+                "symbol": symbol
+            }), 400
+        
+        # Generate prediction
+        prediction = get_model_prediction(data, app.model, app.scaler, app.feature_columns)
+        
+        # Add symbol to response
+        prediction['symbol'] = symbol
+        prediction['timeframe'] = timeframe
+        
+        return jsonify(prediction)
+        
+    except Exception as e:
+        return jsonify({
+            "error": f"Prediction failed: {str(e)}",
+            "symbol": symbol
+        }), 500
 
-@current_app.route('/api/get_price')
-def api_get_price():
-    symbol = request.args.get('symbol')
-    return get_latest_price(symbol)
+@app.route('/predict/batch', methods=['POST'])
+def predict_batch():
+    """Generate predictions for multiple symbols."""
+    
+    if not all([app.model, app.scaler, app.feature_columns]):
+        return jsonify({
+            "error": "ML models not properly loaded"
+        }), 500
+    
+    data = request.get_json()
+    if not data or 'symbols' not in data:
+        return jsonify({
+            "error": "Please provide 'symbols' list in request body"
+        }), 400
+    
+    symbols = data['symbols']
+    timeframe = data.get('timeframe', '1h')
+    
+    results = {}
+    
+    for symbol in symbols:
+        try:
+            market_data = fetch_yfinance_data(symbol, period='90d', interval=timeframe)
+            if market_data is not None:
+                prediction = get_model_prediction(market_data, app.model, app.scaler, app.feature_columns)
+                prediction['symbol'] = symbol
+                prediction['timeframe'] = timeframe
+                results[symbol] = prediction
+            else:
+                results[symbol] = {
+                    "error": f"Could not fetch data for {symbol}",
+                    "symbol": symbol
+                }
+        except Exception as e:
+            results[symbol] = {
+                "error": f"Prediction failed: {str(e)}",
+                "symbol": symbol
+            }
+    
+    return jsonify(results)
