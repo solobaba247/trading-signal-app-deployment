@@ -13,6 +13,11 @@ on:
         required: false
         default: '10'
         type: string
+      continue_on_failure:
+        description: 'Continue workflow even if some data fetching fails'
+        required: false
+        default: 'true'
+        type: boolean
 
 jobs:
   update-data:
@@ -53,8 +58,36 @@ jobs:
       working-directory: ./trading_signal_app
       env:
         MAX_WORKERS: ${{ github.event.inputs.max_workers || '10' }}
+        CONTINUE_ON_FAILURE: ${{ github.event.inputs.continue_on_failure || 'true' }}
       run: |
-        python data_pipeline.py
+        python data_pipeline.py || {
+          echo "Data pipeline encountered errors but continuing..."
+          if [ "$CONTINUE_ON_FAILURE" = "false" ]; then
+            echo "CONTINUE_ON_FAILURE is false, failing the workflow"
+            exit 1
+          fi
+        }
+    
+    - name: Check pipeline results
+      id: check_results
+      working-directory: ./trading_signal_app
+      run: |
+        if [ -f "data_cache/pipeline_summary.txt" ]; then
+          echo "Pipeline summary found"
+          cat data_cache/pipeline_summary.txt
+          
+          # Check if any data was successfully processed
+          if grep -q "Success rate: 0.0%" data_cache/pipeline_summary.txt; then
+            echo "pipeline_success=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Pipeline completed but no data was successfully processed"
+          else
+            echo "pipeline_success=true" >> $GITHUB_OUTPUT
+            echo "✅ Pipeline completed with some successful data processing"
+          fi
+        else
+          echo "pipeline_success=false" >> $GITHUB_OUTPUT
+          echo "❌ No pipeline summary found"
+        fi
     
     - name: Check if data was updated
       id: check_changes
@@ -93,13 +126,13 @@ jobs:
           trading_signal_app/data_cache/pipeline_summary.txt
         retention-days: 7
     
-    - name: Create summary comment (on manual trigger)
-      if: github.event_name == 'workflow_dispatch' && always()
+    - name: Create summary comment
+      if: always()
       working-directory: ./trading_signal_app
       run: |
         echo "## 📊 Data Pipeline Summary" >> $GITHUB_STEP_SUMMARY
         echo "**Execution Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
-        echo "**Trigger:** Manual" >> $GITHUB_STEP_SUMMARY
+        echo "**Trigger:** ${{ github.event_name == 'workflow_dispatch' && 'Manual' || 'Scheduled' }}" >> $GITHUB_STEP_SUMMARY
         echo "**Max Workers:** ${{ github.event.inputs.max_workers || '10' }}" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         
@@ -116,3 +149,21 @@ jobs:
         else
           echo "ℹ️ No changes to commit" >> $GITHUB_STEP_SUMMARY
         fi
+        
+        echo "### Pipeline Status" >> $GITHUB_STEP_SUMMARY
+        if [ "${{ steps.check_results.outputs.pipeline_success }}" = "true" ]; then
+          echo "✅ Pipeline completed successfully" >> $GITHUB_STEP_SUMMARY
+        else
+          echo "⚠️ Pipeline encountered issues - check logs for details" >> $GITHUB_STEP_SUMMARY
+        fi
+    
+    - name: Notify on complete failure
+      if: steps.check_results.outputs.pipeline_success == 'false' && github.event.inputs.continue_on_failure != 'true'
+      run: |
+        echo "❌ Pipeline failed completely with no successful data processing"
+        echo "Consider checking:"
+        echo "1. API credentials and rate limits"
+        echo "2. Network connectivity"
+        echo "3. Symbol validity and data source availability"
+        echo "4. Data pipeline configuration"
+        exit 1
