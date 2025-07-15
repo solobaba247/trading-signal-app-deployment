@@ -60,13 +60,8 @@ jobs:
         MAX_WORKERS: ${{ github.event.inputs.max_workers || '10' }}
         CONTINUE_ON_FAILURE: ${{ github.event.inputs.continue_on_failure || 'true' }}
       run: |
-        python data_pipeline.py || {
-          echo "Data pipeline encountered errors but continuing..."
-          if [ "$CONTINUE_ON_FAILURE" = "false" ]; then
-            echo "CONTINUE_ON_FAILURE is false, failing the workflow"
-            exit 1
-          fi
-        }
+        echo "Starting forex data pipeline with API endpoint..."
+        python data_pipeline.py
     
     - name: Check pipeline results
       id: check_results
