@@ -1,20 +1,20 @@
 {
-  "execution_time": "2025-07-15T17:43:14.924642",
-  "duration_seconds": 42.51,
+  "execution_time": "2025-07-15T18:57:28.810767",
+  "duration_seconds": 0.51,
   "total_symbols": 15,
   "successful": 0,
   "failed": 15,
   "success_rate": 0.0,
   "errors": [
-    "Request failed for NZDUSD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for USDCHF: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for EURJPY: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for EURUSD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for GBPJPY: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for USDJPY: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for AUDUSD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for EURGBP: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for GBPUSD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for USDCAD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)"
+    "Request failed for USDCAD: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/USDCAD",
+    "Request failed for EURGBP: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/EURGBP",
+    "Request failed for USDCHF: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/USDCHF",
+    "Request failed for NZDUSD: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/NZDUSD",
+    "Request failed for GBPJPY: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/GBPJPY",
+    "Request failed for USDJPY: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/USDJPY",
+    "Request failed for AUDUSD: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/AUDUSD",
+    "Request failed for GBPUSD: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/GBPUSD",
+    "Request failed for AUDJPY: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/AUDJPY",
+    "Request failed for EURJPY: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/EURJPY"
   ]
 }
