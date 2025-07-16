@@ -1,20 +1,20 @@
 {
-  "execution_time": "2025-07-16T19:31:03.191462",
-  "duration_seconds": 0.72,
+  "execution_time": "2025-07-16T20:43:52.338493",
+  "duration_seconds": 0.57,
   "total_symbols": 15,
   "successful": 0,
   "failed": 15,
   "success_rate": 0.0,
   "errors": [
-    "Request failed for USDJPY: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/USDJPY",
-    "Request failed for AUDUSD: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/AUDUSD",
     "Request failed for USDCHF: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/USDCHF",
-    "Request failed for GBPJPY: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/GBPJPY",
-    "Request failed for GBPUSD: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/GBPUSD",
     "Request failed for USDCAD: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/USDCAD",
     "Request failed for EURUSD: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/EURUSD",
+    "Request failed for EURJPY: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/EURJPY",
+    "Request failed for AUDUSD: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/AUDUSD",
+    "Request failed for GBPUSD: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/GBPUSD",
     "Request failed for NZDUSD: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/NZDUSD",
-    "Request failed for EURGBP: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/EURGBP",
-    "Request failed for EURJPY: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/EURJPY"
+    "Request failed for USDJPY: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/USDJPY",
+    "Request failed for AUDJPY: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/AUDJPY",
+    "Request failed for GBPJPY: 404 Client Error: Not Found for url: https://my-finance-appi.onrender.com/api/forex/GBPJPY"
   ]
 }
