@@ -1,20 +1,20 @@
 {
-  "execution_time": "2025-07-16T22:48:11.228037",
-  "duration_seconds": 32.42,
+  "execution_time": "2025-07-16T23:38:04.151634",
+  "duration_seconds": 31.61,
   "total_symbols": 15,
   "successful": 0,
   "failed": 15,
   "success_rate": 0.0,
   "errors": [
-    "Request failed for EURGBP: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for GBPUSD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
     "Request failed for USDCHF: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for EURJPY: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for USDCAD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for NZDUSD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for USDJPY: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for AUDUSD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
     "Request failed for EURUSD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
-    "Request failed for GBPJPY: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)"
+    "Request failed for USDJPY: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
+    "Request failed for EURGBP: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
+    "Request failed for GBPJPY: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
+    "Request failed for AUDUSD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
+    "Request failed for NZDUSD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
+    "Request failed for USDCAD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
+    "Request failed for GBPUSD: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)",
+    "Request failed for EURJPY: HTTPSConnectionPool(host='my-finance-appi.onrender.com', port=443): Read timed out. (read timeout=30)"
   ]
 }
