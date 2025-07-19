@@ -1,36 +1,59 @@
-import requests
-import json
+# trading-signal-app-deployment-main/trading_signal_app/data_pipeline.py
+
+import yfinance as yf
 import os
 import logging
 from datetime import datetime
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import sys
+import pandas as pd
 
+# --- Configuration ---
 # Set up logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
         logging.FileHandler('data_pipeline.log'),
-        logging.StreamHandler()
+        logging.StreamHandler(sys.stdout)
     ]
 )
-
 logger = logging.getLogger(__name__)
 
-class ForexDataPipeline:
-    def __init__(self, base_url="https://my-finance-appi.onrender.com/api/forex"):
-        self.base_url = base_url
+# Define the root directory for the cache, assuming the script runs from the repository root
+CACHE_BASE_DIR = 'trading_signal_app/data_cache'
+
+class TradingDataPipeline:
+    def __init__(self):
         self.max_workers = int(os.getenv('MAX_WORKERS', '10'))
-        self.continue_on_failure = os.getenv('CONTINUE_ON_FAILURE', 'true').lower() == 'true'
         
-        # Common forex pairs
-        self.forex_pairs = [
-            'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'USDCAD',
-            'AUDUSD', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY',
-            'AUDJPY', 'EURAUD', 'EURCHF', 'AUDCAD', 'GBPCHF'
-        ]
+        # Asset classes used by the application
+        self.asset_classes = {
+            'forex': [
+                'EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'USDCHF=X', 'USDCAD=X',
+                'AUDUSD=X', 'NZDUSD=X', 'EURGBP=X', 'EURJPY=X', 'GBPJPY=X',
+                'AUDJPY=X', 'EURAUD=X', 'EURCHF=X', 'AUDCAD=X', 'GBPCHF=X'
+            ],
+            'stocks': [
+                'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA',
+                'NFLX', 'ORCL', 'CRM', 'ADBE', 'PYPL', 'INTC', 'AMD'
+            ],
+            'crypto': [
+                'BTC-USD', 'ETH-USD', 'BNB-USD', 'XRP-USD', 'ADA-USD',
+                'SOL-USD', 'DOT-USD', 'DOGE-USD', 'AVAX-USD', 'MATIC-USD'
+            ],
+            'indices': [
+                '^GSPC', '^DJI', '^IXIC', '^RUT', '^VIX', '^FTSE',
+                '^GDAXI', '^FCHI', '^N225', '^HSI'
+            ]
+        }
+        # Use yfinance-compatible symbols for forex
+        self.asset_classes['forex'] = [f.replace('EURUSD', 'EURUSD=X') for f in self.asset_classes['forex']]
+
+        self.all_symbols = [symbol for sublist in self.asset_classes.values() for symbol in sublist]
+        self.timeframes = ['1h', '4h', '1d']
+        self.periods = {'1h': '730d', '4h': '730d', '1d': '10y'}
         
         self.results = {
             'successful': 0,
@@ -38,193 +61,103 @@ class ForexDataPipeline:
             'errors': []
         }
     
-    def fetch_forex_data(self, symbol):
-        """Fetch data for a single forex pair"""
+    def fetch_and_save_data(self, symbol, timeframe):
+        """Fetch data for a single symbol and timeframe using yfinance and save as CSV"""
         try:
-            url = f"{self.base_url}/{symbol}"
-            logger.info(f"Fetching data for {symbol}")
+            logger.info(f"Fetching data for {symbol} ({timeframe})")
             
-            response = requests.get(url, timeout=30)
-            response.raise_for_status()
+            # Use appropriate periods for different intervals
+            period = self.periods.get(timeframe, '10y')
+            data = yf.download(tickers=symbol, period=period, interval=timeframe, progress=False, auto_adjust=True)
             
-            data = response.json()
+            if data.empty:
+                raise ValueError(f"No data returned from yfinance for {symbol} ({timeframe})")
             
-            # Validate required fields
-            required_fields = ['currentPrice', 'dayHigh', 'dayLow', 'pairName', 'symbol']
-            for field in required_fields:
-                if field not in data:
-                    raise ValueError(f"Missing required field: {field}")
+            # Sanitize symbol for filename (compatible with data_cache_reader)
+            safe_symbol = symbol.replace('=', '_').replace('^', '_')
             
-            # Save data to cache
-            self.save_to_cache(symbol, data)
-            
-            logger.info(f"Successfully fetched data for {symbol}")
-            self.results['successful'] += 1
-            
-            return {
-                'symbol': symbol,
-                'status': 'success',
-                'data': data
-            }
-            
-        except requests.RequestException as e:
-            error_msg = f"Request failed for {symbol}: {str(e)}"
-            logger.error(error_msg)
-            self.results['failed'] += 1
-            self.results['errors'].append(error_msg)
-            
-            return {
-                'symbol': symbol,
-                'status': 'error',
-                'error': str(e)
-            }
-            
-        except ValueError as e:
-            error_msg = f"Data validation failed for {symbol}: {str(e)}"
-            logger.error(error_msg)
-            self.results['failed'] += 1
-            self.results['errors'].append(error_msg)
-            
-            return {
-                'symbol': symbol,
-                'status': 'error',
-                'error': str(e)
-            }
-        
-        except Exception as e:
-            error_msg = f"Unexpected error for {symbol}: {str(e)}"
-            logger.error(error_msg)
-            self.results['failed'] += 1
-            self.results['errors'].append(error_msg)
-            
-            return {
-                'symbol': symbol,
-                'status': 'error',
-                'error': str(e)
-            }
-    
-    def save_to_cache(self, symbol, data):
-        """Save data to cache files"""
-        try:
             # Create cache directories if they don't exist
-            os.makedirs('data_cache/1h', exist_ok=True)
-            os.makedirs('data_cache/4h', exist_ok=True)
-            os.makedirs('data_cache/1d', exist_ok=True)
+            cache_dir = os.path.join(CACHE_BASE_DIR, timeframe)
+            os.makedirs(cache_dir, exist_ok=True)
             
-            # Add timestamp to data
-            data['timestamp'] = datetime.utcnow().isoformat()
+            # Save data to CSV
+            cache_file = os.path.join(cache_dir, f"{safe_symbol}.csv")
+            data.to_csv(cache_file)
             
-            # Save to different timeframe folders (for now, same data)
-            for timeframe in ['1h', '4h', '1d']:
-                cache_file = f'data_cache/{timeframe}/{symbol}.json'
-                with open(cache_file, 'w') as f:
-                    json.dump(data, f, indent=2)
-                    
+            self.results['successful'] += 1
+            return {'symbol': symbol, 'timeframe': timeframe, 'status': 'success'}
+            
         except Exception as e:
-            logger.error(f"Failed to save cache for {symbol}: {str(e)}")
-            raise
-    
+            error_msg = f"Failed for {symbol} ({timeframe}): {str(e)}"
+            logger.error(error_msg)
+            self.results['failed'] += 1
+            self.results['errors'].append(error_msg)
+            return {'symbol': symbol, 'timeframe': timeframe, 'status': 'error', 'error': str(e)}
+
     def run_pipeline(self):
         """Run the complete data pipeline"""
-        logger.info("Starting forex data pipeline")
-        logger.info(f"Max workers: {self.max_workers}")
-        logger.info(f"Continue on failure: {self.continue_on_failure}")
-        logger.info(f"Processing {len(self.forex_pairs)} forex pairs")
-        
+        logger.info("Starting trading data pipeline with yfinance")
         start_time = time.time()
         
-        # Use ThreadPoolExecutor for concurrent requests
         with ThreadPoolExecutor(max_workers=self.max_workers) as executor:
-            # Submit all tasks
-            future_to_symbol = {
-                executor.submit(self.fetch_forex_data, symbol): symbol 
-                for symbol in self.forex_pairs
-            }
+            tasks = []
+            for symbol in self.all_symbols:
+                for timeframe in self.timeframes:
+                    tasks.append(executor.submit(self.fetch_and_save_data, symbol, timeframe))
             
-            # Process completed tasks
-            for future in as_completed(future_to_symbol):
-                symbol = future_to_symbol[future]
+            for future in as_completed(tasks):
                 try:
-                    result = future.result()
-                    logger.info(f"Completed processing {symbol}: {result['status']}")
+                    future.result()
                 except Exception as e:
-                    logger.error(f"Task failed for {symbol}: {str(e)}")
-                    self.results['failed'] += 1
-                    self.results['errors'].append(f"Task execution failed for {symbol}: {str(e)}")
-        
+                    logger.error(f"A task generated an exception: {e}")
+
         duration = time.time() - start_time
-        success_rate = (self.results['successful'] / len(self.forex_pairs)) * 100
+        total_tasks = len(self.all_symbols) * len(self.timeframes)
+        success_rate = (self.results['successful'] / total_tasks) * 100 if total_tasks > 0 else 0
         
-        # Log final results
         logger.info("Pipeline execution completed")
         logger.info(f"Duration: {duration:.2f} seconds")
-        logger.info(f"Successful: {self.results['successful']}")
-        logger.info(f"Failed: {self.results['failed']}")
+        logger.info(f"Successful tasks: {self.results['successful']}")
+        logger.info(f"Failed tasks: {self.results['failed']}")
         logger.info(f"Success rate: {success_rate:.1f}%")
         
-        # Save summary report
-        self.save_summary_report(duration, success_rate)
+        self.save_summary_report(duration, success_rate, total_tasks)
         
-        # Determine exit code
-        if success_rate == 0 and not self.continue_on_failure:
-            logger.error("Pipeline failed completely with 0% success rate")
-            sys.exit(1)
-        elif success_rate < 50 and not self.continue_on_failure:
-            logger.error(f"Pipeline success rate too low: {success_rate:.1f}%")
+        if self.results['failed'] > 0 and self.results['successful'] == 0:
+            logger.error("Pipeline failed completely with no successful data processing")
             sys.exit(1)
         else:
-            logger.info("Pipeline completed successfully")
+            logger.info("Pipeline completed.")
             sys.exit(0)
     
-    def save_summary_report(self, duration, success_rate):
+    def save_summary_report(self, duration, success_rate, total_tasks):
         """Save pipeline summary report"""
-        try:
-            os.makedirs('data_cache', exist_ok=True)
+        os.makedirs(CACHE_BASE_DIR, exist_ok=True)
+        summary = {
+            'execution_time': datetime.utcnow().isoformat(),
+            'duration_seconds': round(duration, 2),
+            'total_tasks': total_tasks,
+            'successful': self.results['successful'],
+            'failed': self.results['failed'],
+            'success_rate': round(success_rate, 1),
+            'errors': self.results['errors'][:20]
+        }
+        
+        # Save JSON and TXT reports
+        with open(os.path.join(CACHE_BASE_DIR, 'pipeline_summary.json'), 'w') as f:
+            import json
+            json.dump(summary, f, indent=2)
             
-            summary = {
-                'execution_time': datetime.utcnow().isoformat(),
-                'duration_seconds': round(duration, 2),
-                'total_symbols': len(self.forex_pairs),
-                'successful': self.results['successful'],
-                'failed': self.results['failed'],
-                'success_rate': round(success_rate, 1),
-                'errors': self.results['errors'][:10]  # Limit to first 10 errors
-            }
-            
-            # Save JSON summary
-            with open('data_cache/pipeline_summary.json', 'w') as f:
-                json.dump(summary, f, indent=2)
-            
-            # Save text summary
-            with open('data_cache/pipeline_summary.txt', 'w') as f:
-                f.write(f"Pipeline Summary Report\n")
-                f.write(f"=====================\n")
-                f.write(f"Execution Time: {summary['execution_time']}\n")
-                f.write(f"Duration: {summary['duration_seconds']} seconds\n")
-                f.write(f"Total Symbols: {summary['total_symbols']}\n")
-                f.write(f"Successful: {summary['successful']}\n")
-                f.write(f"Failed: {summary['failed']}\n")
-                f.write(f"Success rate: {summary['success_rate']}%\n")
-                
-                if summary['errors']:
-                    f.write(f"\nFirst {len(summary['errors'])} Errors:\n")
-                    for i, error in enumerate(summary['errors'], 1):
-                        f.write(f"{i}. {error}\n")
-                        
-        except Exception as e:
-            logger.error(f"Failed to save summary report: {str(e)}")
-
-def main():
-    """Main entry point"""
-    try:
-        pipeline = ForexDataPipeline()
-        pipeline.run_pipeline()
-    except KeyboardInterrupt:
-        logger.info("Pipeline interrupted by user")
-        sys.exit(1)
-    except Exception as e:
-        logger.error(f"Pipeline failed with unexpected error: {str(e)}")
-        sys.exit(1)
+        with open(os.path.join(CACHE_BASE_DIR, 'pipeline_summary.txt'), 'w') as f:
+            f.write("Pipeline Summary Report\n=====================\n")
+            for key, value in summary.items():
+                if key != 'errors':
+                    f.write(f"{key.replace('_', ' ').title()}: {value}\n")
+            if summary['errors']:
+                f.write("\nFirst 20 Errors:\n")
+                for i, error in enumerate(summary['errors'], 1):
+                    f.write(f"{i}. {error}\n")
 
 if __name__ == "__main__":
-    main()
+    pipeline = TradingDataPipeline()
+    pipeline.run_pipeline()
