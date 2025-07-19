@@ -17,4 +17,4 @@ services:
     startCommand: "gunicorn --worker-class sync run:app"
     
     # Health Check to ensure the app is running before it's marked as "live"
-    healthCheckPath: /api/check_model_status
+    healthCheckPath: /api/health
