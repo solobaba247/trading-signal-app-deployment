@@ -13,11 +13,6 @@ on:
         required: false
         default: '10'
         type: string
-      continue_on_failure:
-        description: 'Continue workflow even if some data fetching fails'
-        required: false
-        default: 'true'
-        type: boolean
 
 jobs:
   update-data:
@@ -32,8 +27,6 @@ jobs:
       with:
         # Fetch full history to avoid issues with commits
         fetch-depth: 0
-        # Use the GITHUB_TOKEN for authentication
-        token: ${{ secrets.GITHUB_TOKEN }}
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -49,84 +42,76 @@ jobs:
           ${{ runner.os }}-pip-
     
     - name: Install dependencies
-      working-directory: ./trading_signal_app
       run: |
         python -m pip install --upgrade pip
-        pip install -r requirements.txt
+        pip install -r trading_signal_app/requirements.txt
     
     - name: Create data cache directory
-      working-directory: ./trading_signal_app
       run: |
-        mkdir -p data_cache/{1h,4h,1d}
+        mkdir -p trading_signal_app/data_cache/{1h,4h,1d}
     
-    - name: Run data pipeline
-      working-directory: ./trading_signal_app
+    # --- MODIFIED STEP ---
+    # Now correctly reflects that it's using yfinance, not an external API
+    - name: Run data pipeline with yfinance
       env:
         MAX_WORKERS: ${{ github.event.inputs.max_workers || '10' }}
-        CONTINUE_ON_FAILURE: ${{ github.event.inputs.continue_on_failure || 'true' }}
       run: |
-        echo "Starting forex data pipeline with API endpoint..."
-        python data_pipeline.py
+        echo "Starting data pipeline using yfinance..."
+        python trading_signal_app/data_pipeline.py
     
     - name: Check pipeline results
       id: check_results
-      working-directory: ./trading_signal_app
       run: |
-        if [ -f "data_cache/pipeline_summary.txt" ]; then
+        if [ -f "trading_signal_app/data_cache/pipeline_summary.txt" ]; then
           echo "Pipeline summary found"
-          cat data_cache/pipeline_summary.txt
+          cat trading_signal_app/data_cache/pipeline_summary.txt
           
-          # Check if any data was successfully processed
-          if grep -q "Success rate: 0.0%" data_cache/pipeline_summary.txt; then
+          if grep -q "Failed tasks: 0" trading_signal_app/data_cache/pipeline_summary.txt; then
+            echo "pipeline_success=true" >> $GITHUB_OUTPUT
+            echo "✅ Pipeline completed with no failures."
+          elif grep -q "Successful tasks: 0" trading_signal_app/data_cache/pipeline_summary.txt; then
             echo "pipeline_success=false" >> $GITHUB_OUTPUT
-            echo "⚠️ Pipeline completed but no data was successfully processed"
+            echo "❌ Pipeline completed but NO data was successfully processed."
           else
             echo "pipeline_success=true" >> $GITHUB_OUTPUT
-            echo "✅ Pipeline completed with some successful data processing"
+            echo "✅ Pipeline completed with some successful data processing."
           fi
         else
           echo "pipeline_success=false" >> $GITHUB_OUTPUT
-          echo "❌ No pipeline summary found"
+          echo "❌ No pipeline summary found."
         fi
-    
+
     - name: Check if data was updated
       id: check_changes
-      working-directory: ./trading_signal_app
       run: |
-        if [ -n "$(git status --porcelain data_cache/)" ]; then
+        if [ -n "$(git status --porcelain trading_signal_app/data_cache/)" ]; then
           echo "changes=true" >> $GITHUB_OUTPUT
-          echo "Data cache has been updated"
+          echo "Data cache has been updated."
         else
           echo "changes=false" >> $GITHUB_OUTPUT
-          echo "No changes to data cache"
+          echo "No changes to data cache."
         fi
     
-    - name: Configure Git
+    # --- MODIFIED STEP ---
+    # Added 'git pull --rebase' to prevent "non-fast-forward" errors.
+    - name: Commit and push changes
       if: steps.check_changes.outputs.changes == 'true'
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-    
-    - name: Commit and push changes
-      if: steps.check_changes.outputs.changes == 'true'
-      working-directory: ./trading_signal_app
-      run: |
-        # Configure git to ignore warnings about ignored files
-        git config advice.addIgnoredFile false
         
-        # Add only the data_cache directory (skip log files that might be ignored)
-        git add data_cache/
+        # Add the updated cache and log files
+        git add trading_signal_app/data_cache/
+        git add trading_signal_app/data_pipeline.log
         
-        # Try to add log file, but don't fail if it's ignored
-        git add data_pipeline.log 2>/dev/null || echo "Log file ignored by .gitignore, skipping"
-        
-        # Check if there are actually changes to commit
-        if git diff --staged --quiet; then
-          echo "No staged changes to commit"
-          exit 0
-        fi
-        
+        # Commit the changes
         git commit -m "🤖 Auto-update trading data cache - $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+        
+        # *** KEY CHANGE HERE ***
+        # Pull latest changes from the remote branch and rebase our commit on top of them
+        git pull --rebase
+        
+        # Push the changes
         git push
     
     - name: Upload pipeline logs
@@ -141,42 +126,26 @@ jobs:
     
     - name: Create summary comment
       if: always()
-      working-directory: ./trading_signal_app
       run: |
         echo "## 📊 Data Pipeline Summary" >> $GITHUB_STEP_SUMMARY
-        echo "**Execution Time:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
         echo "**Trigger:** ${{ github.event_name == 'workflow_dispatch' && 'Manual' || 'Scheduled' }}" >> $GITHUB_STEP_SUMMARY
-        echo "**Max Workers:** ${{ github.event.inputs.max_workers || '10' }}" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
         
-        if [ -f "data_cache/pipeline_summary.txt" ]; then
+        if [ -f "trading_signal_app/data_cache/pipeline_summary.txt" ]; then
           echo "### Pipeline Results" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          cat data_cache/pipeline_summary.txt >> $GITHUB_STEP_SUMMARY
+          cat trading_signal_app/data_cache/pipeline_summary.txt >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
         fi
         
         echo "### Changes Made" >> $GITHUB_STEP_SUMMARY
         if [ "${{ steps.check_changes.outputs.changes }}" = "true" ]; then
-          echo "✅ Data cache updated and committed" >> $GITHUB_STEP_SUMMARY
+          echo "✅ Data cache updated and committed to the repository." >> $GITHUB_STEP_SUMMARY
         else
-          echo "ℹ️ No changes to commit" >> $GITHUB_STEP_SUMMARY
-        fi
-        
-        echo "### Pipeline Status" >> $GITHUB_STEP_SUMMARY
-        if [ "${{ steps.check_results.outputs.pipeline_success }}" = "true" ]; then
-          echo "✅ Pipeline completed successfully" >> $GITHUB_STEP_SUMMARY
-        else
-          echo "⚠️ Pipeline encountered issues - check logs for details" >> $GITHUB_STEP_SUMMARY
+          echo "ℹ️ No changes were detected in the data cache." >> $GITHUB_STEP_SUMMARY
         fi
     
     - name: Notify on complete failure
-      if: steps.check_results.outputs.pipeline_success == 'false' && github.event.inputs.continue_on_failure != 'true'
+      if: steps.check_results.outputs.pipeline_success == 'false'
       run: |
-        echo "❌ Pipeline failed completely with no successful data processing"
-        echo "Consider checking:"
-        echo "1. API credentials and rate limits"
-        echo "2. Network connectivity"
-        echo "3. Symbol validity and data source availability"
-        echo "4. Data pipeline configuration"
+        echo "❌ Pipeline failed to process any data successfully. Check logs for details."
         exit 1
