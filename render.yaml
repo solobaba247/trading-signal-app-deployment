@@ -1,20 +1,17 @@
 # render.yaml
-# Place this file in the root of your repository
 
 services:
   - type: web
     name: trading-signal-app
+    # ... (rest of your web service config) ...
+    
+  # --- ADD THIS NEW SERVICE ---
+  - type: cron
+    name: data-pipeline-runner
     env: python
-    # This is crucial: it tells Render to work inside your app's folder
     rootDir: trading_signal_app
-    plan: free # Or your preferred plan. Free instances may spin down.
-    
-    # Command to install dependencies
+    plan: free # Or your preferred plan
+    # This schedule runs the job every day at 1 AM UTC. Adjust as needed.
+    schedule: "0 1 * * *" 
     buildCommand: "pip install -r requirements.txt"
-    
-    # Command to start the production server
-    # Use a standard 'sync' worker for Flask
-    startCommand: "gunicorn --worker-class sync run:app"
-    
-    # Health Check to ensure the app is running before it's marked as "live"
-    healthCheckPath: /api/health
+    startCommand: "python data_pipeline.py"
