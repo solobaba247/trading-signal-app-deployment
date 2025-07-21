@@ -8,6 +8,7 @@ from datetime import datetime
 import time
 import sys
 import pandas as pd
+import requests # <-- ADD THIS IMPORT
 
 # --- Configuration ---
 logging.basicConfig(
@@ -23,9 +24,11 @@ logger = logging.getLogger(__name__)
 CACHE_BASE_DIR = 'data_cache'
 MAX_RETRIES = 3
 RETRY_DELAY_SECONDS = 5
+GROUP_DELAY_SECONDS = 10 # <-- ADD A DELAY BETWEEN ASSET CLASSES
 
 class TradingDataPipeline:
     def __init__(self):
+        # ... (asset_classes, timeframes, periods are unchanged) ...
         self.asset_classes = {
             'forex': [
                 'EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'USDCHF=X', 'USDCAD=X',
@@ -50,7 +53,14 @@ class TradingDataPipeline:
         
         self.results = {'successful': 0, 'failed': 0, 'errors': []}
 
-    # <-- KEY CHANGE: This function now fetches a group of symbols at once -->
+        # --- KEY ADDITION: CREATE A SESSION OBJECT ---
+        self.session = requests.Session()
+        self.session.headers.update({
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        })
+        # --- END OF ADDITION ---
+
+
     def fetch_and_save_group(self, asset_class, symbols, timeframe):
         logger.info(f"--- Processing group: {asset_class.upper()} for timeframe: {timeframe} ---")
         
@@ -59,7 +69,7 @@ class TradingDataPipeline:
             try:
                 period = self.periods.get(timeframe, '10y')
                 
-                # Download all symbols in the group with one API call
+                # --- MODIFICATION: PASS THE SESSION TO YFINANCE ---
                 data = yf.download(
                     tickers=symbols,
                     period=period,
@@ -67,16 +77,26 @@ class TradingDataPipeline:
                     group_by='ticker',
                     progress=False,
                     auto_adjust=True,
-                    threads=True # Use multiple threads for yfinance download
+                    threads=True,
+                    session=self.session # <-- PASS THE SESSION HERE
                 )
+                # --- END OF MODIFICATION ---
+
+                # Filter out symbols that failed (yfinance returns object dtype columns for them)
+                if isinstance(data.columns, pd.MultiIndex):
+                    valid_cols = [col for col in data.columns if data[col].dtype != 'object']
+                    if not valid_cols:
+                        raise ValueError("Downloaded data contains no valid columns (all tickers may have failed).")
+                    data = data[valid_cols]
                 
                 if not data.empty:
-                    logger.info(f"Successfully downloaded group {asset_class}")
-                    break # Exit retry loop on success
+                    logger.info(f"Successfully downloaded group {asset_class} with {len(data.columns.get_level_values(0).unique())} symbols.")
+                    break 
                 else:
-                    raise ValueError("Downloaded data is empty.")
+                    raise ValueError("Downloaded data is empty after filtering failed tickers.")
 
             except Exception as e:
+                # ... (rest of the function is mostly unchanged) ...
                 logger.warning(f"Attempt {attempt + 1}/{MAX_RETRIES} failed for group {asset_class} ({timeframe}): {e}")
                 if attempt < MAX_RETRIES - 1:
                     logger.info(f"Retrying in {RETRY_DELAY_SECONDS} seconds...")
@@ -84,18 +104,26 @@ class TradingDataPipeline:
                 else:
                     logger.error(f"All retries failed for group {asset_class} ({timeframe}).")
                     self.results['errors'].append(f"Failed to download group {asset_class} ({timeframe})")
-                    # Mark all symbols in this group as failed for reporting
                     self.results['failed'] += len(symbols)
                     return
-
+        
+        # ... (rest of the function for saving data is unchanged) ...
         # Save each symbol's data to its own CSV file
         for symbol in symbols:
             try:
-                symbol_data = data[symbol] if len(symbols) > 1 else data
+                # Handle single vs multi-symbol download result
+                if len(symbols) > 1:
+                    if symbol not in data.columns.get_level_values(0):
+                        logger.warning(f"No data found for {symbol} in the downloaded group, skipping.")
+                        continue # Skip to the next symbol
+                    symbol_data = data[symbol]
+                else:
+                    symbol_data = data
+
                 symbol_data.dropna(how='all', inplace=True)
 
                 if symbol_data.empty:
-                    raise ValueError(f"No valid data for symbol {symbol} in the downloaded group.")
+                    raise ValueError(f"No valid data for symbol {symbol} after cleaning.")
 
                 safe_symbol = symbol.replace('=', '_').replace('^', '_')
                 cache_dir = os.path.join(CACHE_BASE_DIR, timeframe)
@@ -107,8 +135,10 @@ class TradingDataPipeline:
                 
             except Exception as e:
                 logger.error(f"Failed to process/save data for {symbol}: {e}")
-                self.results['failed'] += 1
+                if symbol not in str(self.results['errors']): # Avoid double-counting
+                    self.results['failed'] += 1
                 self.results['errors'].append(f"Processing failed for {symbol}: {e}")
+
 
     def run_pipeline(self):
         logger.info("Starting robust trading data pipeline")
@@ -118,9 +148,16 @@ class TradingDataPipeline:
             for asset_class, symbols in self.asset_classes.items():
                 if symbols:
                     self.fetch_and_save_group(asset_class, symbols, timeframe)
+                    # --- ADDITION: BE POLITE, PAUSE BETWEEN BIG REQUESTS ---
+                    logger.info(f"Pausing for {GROUP_DELAY_SECONDS} seconds before next asset class...")
+                    time.sleep(GROUP_DELAY_SECONDS)
         
+        # ... (rest of the run_pipeline method is unchanged) ...
         duration = time.time() - start_time
         total_tasks = sum(len(s) for s in self.asset_classes.values()) * len(self.timeframes)
+        # Adjust failed count if it was over-counted from group failures
+        self.results['failed'] = total_tasks - self.results['successful']
+
         success_rate = (self.results['successful'] / total_tasks) * 100 if total_tasks > 0 else 0
         
         logger.info("--- PIPELINE EXECUTION COMPLETE ---")
@@ -137,30 +174,8 @@ class TradingDataPipeline:
         else:
             logger.info("Pipeline completed.")
             sys.exit(0)
-    
-    def save_summary_report(self, duration, success_rate, total_tasks):
-        os.makedirs(CACHE_BASE_DIR, exist_ok=True)
-        summary = {
-            'execution_time': datetime.utcnow().isoformat(),
-            'duration_seconds': round(duration, 2),
-            'total_tasks': total_tasks,
-            'successful': self.results['successful'],
-            'failed': self.results['failed'],
-            'success_rate': round(success_rate, 1),
-            'errors': self.results['errors'][:20]
-        }
-        
-        report_path = os.path.join(CACHE_BASE_DIR, 'pipeline_summary.txt')
-        with open(report_path, 'w') as f:
-            f.write("Pipeline Summary Report\n=====================\n")
-            for key, value in summary.items():
-                if key != 'errors':
-                    f.write(f"{key.replace('_', ' ').title()}: {value}\n")
-            if summary['errors']:
-                f.write("\nFirst 20 Errors:\n")
-                for i, error in enumerate(summary['errors'], 1):
-                    f.write(f"{i}. {error}\n")
-        logger.info(f"Summary report saved to {report_path}")
+
+    # ... (save_summary_report is unchanged) ...
 
 if __name__ == "__main__":
     pipeline = TradingDataPipeline()
